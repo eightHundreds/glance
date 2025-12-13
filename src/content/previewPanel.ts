@@ -228,12 +228,13 @@ export class PreviewPanel {
     if (!this.isCurrentRequest(requestId) || !this.elements) {
       return;
     }
-    if (!this.canSummarize()) {
-      return;
-    }
     const { frame } = this.elements;
-    this.pendingSummary = { requestId, html, url };
-    this.setSummaryState('loading', '等待页面加载完成...');
+    
+    // 只有在可以总结时才设置 pendingSummary 和加载状态
+    if (this.canSummarize()) {
+      this.pendingSummary = { requestId, html, url };
+      this.setSummaryState('loading', '等待页面加载完成...');
+    }
 
     // 使用 declarativeNetRequest 移除 CSP 限制
     if (chrome.runtime?.id) {
@@ -251,7 +252,10 @@ export class PreviewPanel {
     const onLoad = () => {
       if (this.elements && this.isCurrentRequest(requestId)) {
         this.elements.panel.dataset.state = 'ready';
-        this.beginSummaryParsing(requestId);
+        // 只有在可以总结时才开始解析
+        if (this.canSummarize()) {
+          this.beginSummaryParsing(requestId);
+        }
       }
       frame.removeEventListener('load', onLoad);
     };
