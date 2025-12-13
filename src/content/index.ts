@@ -28,6 +28,7 @@ async function bootstrap() {
   } catch (error) {
     console.warn('[Glance] 读取设置失败，使用默认值。', error);
   }
+  
   const panel = new PreviewPanel(initialSettings, initialModelState ?? undefined);
   document.body.appendChild(panel.getHostElement());
 

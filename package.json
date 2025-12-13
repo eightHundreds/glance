@@ -21,6 +21,7 @@
     "@rspack/lite-tapable": "^1.0.0",
     "@swc/helpers": "^0.5.10",
     "@types/chrome": "^0.0.273",
+    "@types/marked": "^6.0.0",
     "@types/react": "18",
     "@types/react-dom": "18",
     "typescript": "^5.6.3"
@@ -28,6 +29,7 @@
   "dependencies": {
     "@types/turndown": "^5.0.6",
     "defuddle": "^0.6.6",
+    "marked": "^17.0.1",
     "react": "18",
     "react-dom": "18",
     "swr": "^2.2.5",

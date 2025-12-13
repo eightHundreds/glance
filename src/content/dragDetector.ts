@@ -18,6 +18,9 @@ type Options = {
   onTrigger: (args: TriggerArgs) => void;
 };
 
+/**
+ * 初始化拖拽检测器
+ */
 export function initDragDetector(options: Options) {
   let activeDrag: DragPayload | null = null;
 
