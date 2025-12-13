@@ -1,5 +1,7 @@
-import { DEFAULT_SETTINGS, type ModelConfigState, UserSettings } from '../shared/settings';
+import { DEFAULT_SETTINGS, type ModelConfigState, UserSettings, getModelApiKey } from '../shared/settings';
 import { extractMarkdownFromHtml } from './markdownExtractor';
+import { GENERATE_SUMMARY, SUMMARY_CHUNK, SUMMARY_DONE, SUMMARY_ERROR } from '../shared/messages';
+import { marked } from 'marked';
 
 type Coordinates = {
   clientX: number;
@@ -56,6 +58,7 @@ export class PreviewPanel {
   private pendingSummary: { requestId: number; html: string; url: string } | null = null;
   private summaryState: SummaryState = 'idle';
   private modelConfig: ModelConfigState | null = null;
+  private summaryMessageListener: ((message: unknown) => void) | null = null;
 
   constructor(initialSettings: UserSettings = DEFAULT_SETTINGS, initialModel?: ModelConfigState) {
     this.settings = initialSettings;
@@ -154,6 +157,7 @@ export class PreviewPanel {
     // 取消 resize 相关的监听器
     this.cancelResizeListeners();
     this.cancelSummaryParsing();
+    this.removeSummaryMessageListener();
 
     // 执行所有清理函数
     this.cleanupFunctions.forEach(cleanup => cleanup());
@@ -470,7 +474,15 @@ export class PreviewPanel {
     if (!this.elements) {
       return;
     }
-    this.elements.summaryContent.textContent = markdown;
+    try {
+      // 使用 marked 将 Markdown 转换为 HTML
+      const html = marked.parse(markdown, { breaks: true });
+      this.elements.summaryContent.innerHTML = typeof html === 'string' ? html : String(html);
+    } catch (error) {
+      // 如果解析失败，回退到纯文本显示
+      console.warn('[Glance] Markdown 解析失败，使用纯文本显示', error);
+      this.elements.summaryContent.textContent = markdown;
+    }
   }
 
   private setSummaryState(state: SummaryState, message?: string) {
@@ -530,13 +542,13 @@ export class PreviewPanel {
         }
         const trimmed = markdown.trim();
         if (trimmed) {
-          this.renderSummaryContent(trimmed);
-          this.setSummaryState('ready', '已生成初步总结');
+          // 提取 Markdown 后，调用 AI 生成总结
+          void this.generateSummaryWithAI(requestId, trimmed, promptInfo.value, controller);
         } else {
           this.clearSummaryContent();
           this.setSummaryState('error', '未能提取该页面的正文，↗ 在新标签中查看');
+          this.pendingSummary = null;
         }
-        this.pendingSummary = null;
       })
       .catch(error => {
         if (!this.isCurrentRequest(requestId) || controller.signal.aborted) {
@@ -546,12 +558,138 @@ export class PreviewPanel {
         this.clearSummaryContent();
         this.setSummaryState('error', '暂时无法解析该页面，↗ 在新标签中查看');
         this.pendingSummary = null;
-      })
-      .finally(() => {
+        // 提取失败时清理 controller
         if (this.summaryAbortController === controller) {
           this.summaryAbortController = null;
         }
       });
+  }
+
+  private async generateSummaryWithAI(
+    requestId: number,
+    markdown: string,
+    prompt: string,
+    controller: AbortController
+  ) {
+    if (!this.modelConfig || !this.isCurrentRequest(requestId) || controller.signal.aborted) {
+      return;
+    }
+
+    try {
+      const apiKey = await getModelApiKey();
+      if (!apiKey) {
+        this.setSummaryState('error', 'API Key 未配置，请在设置中配置');
+        this.pendingSummary = null;
+        return;
+      }
+
+      // 清理之前的消息监听器
+      this.removeSummaryMessageListener();
+
+      // 设置新的消息监听器
+      let accumulatedContent = '';
+      const messageListener = (message: unknown) => {
+        if (controller.signal.aborted || !this.isCurrentRequest(requestId)) {
+          return;
+        }
+
+        if (typeof message !== 'object' || message === null) {
+          return;
+        }
+
+        const msg = message as { type?: string; chunk?: string; error?: string };
+
+        if (msg.type === SUMMARY_CHUNK && typeof msg.chunk === 'string') {
+          accumulatedContent += msg.chunk;
+          this.renderSummaryContent(accumulatedContent);
+          this.setSummaryState('loading', '正在生成总结...');
+        } else if (msg.type === SUMMARY_DONE) {
+          this.setSummaryState('ready', '已生成总结');
+          this.removeSummaryMessageListener();
+          this.pendingSummary = null;
+          if (this.summaryAbortController === controller) {
+            this.summaryAbortController = null;
+          }
+        } else if (msg.type === SUMMARY_ERROR) {
+          const errorMsg = typeof msg.error === 'string' ? msg.error : '生成总结失败';
+          console.warn('[Glance] AI 总结失败', errorMsg);
+          this.clearSummaryContent();
+          this.setSummaryState('error', errorMsg);
+          this.removeSummaryMessageListener();
+          this.pendingSummary = null;
+          if (this.summaryAbortController === controller) {
+            this.summaryAbortController = null;
+          }
+        }
+      };
+
+      this.summaryMessageListener = messageListener;
+
+      if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
+        chrome.runtime.onMessage.addListener(messageListener);
+      }
+
+      // 发送生成总结的请求
+      this.setSummaryState('loading', '正在调用 AI 生成总结...');
+      this.clearSummaryContent();
+
+      chrome.runtime.sendMessage({
+        type: GENERATE_SUMMARY,
+        markdown,
+        prompt,
+        modelConfig: {
+          provider: this.modelConfig.provider,
+          modelName: this.modelConfig.modelName,
+          apiBaseUrl: this.modelConfig.apiBaseUrl
+        },
+        apiKey
+      });
+
+      // 处理发送失败的情况
+      if (chrome.runtime.lastError) {
+        throw new Error(chrome.runtime.lastError.message || '发送消息失败');
+      }
+
+      // 设置超时，如果 60 秒内没有响应，认为失败
+      const timeoutId = setTimeout(() => {
+        if (!controller.signal.aborted && this.isCurrentRequest(requestId)) {
+          controller.abort();
+          this.removeSummaryMessageListener();
+          this.clearSummaryContent();
+          this.setSummaryState('error', '生成总结超时，请重试');
+          this.pendingSummary = null;
+          if (this.summaryAbortController === controller) {
+            this.summaryAbortController = null;
+          }
+        }
+      }, 60000);
+
+      // 如果请求被取消，清理超时
+      controller.signal.addEventListener('abort', () => {
+        clearTimeout(timeoutId);
+        this.removeSummaryMessageListener();
+      }, { once: true });
+    } catch (error) {
+      if (controller.signal.aborted || !this.isCurrentRequest(requestId)) {
+        return;
+      }
+      console.warn('[Glance] 调用 AI 总结失败', error);
+      this.removeSummaryMessageListener();
+      this.clearSummaryContent();
+      const errorMsg = error instanceof Error ? error.message : '调用 AI 失败';
+      this.setSummaryState('error', errorMsg);
+      this.pendingSummary = null;
+      if (this.summaryAbortController === controller) {
+        this.summaryAbortController = null;
+      }
+    }
+  }
+
+  private removeSummaryMessageListener() {
+    if (this.summaryMessageListener && typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
+      chrome.runtime.onMessage.removeListener(this.summaryMessageListener);
+      this.summaryMessageListener = null;
+    }
   }
 
   private cancelSummaryParsing() {
@@ -559,6 +697,7 @@ export class PreviewPanel {
       this.summaryAbortController.abort();
       this.summaryAbortController = null;
     }
+    this.removeSummaryMessageListener();
   }
 
   private ensureElements(): PreviewElements {
@@ -867,9 +1006,108 @@ export class PreviewPanel {
         font-size: 13px;
         line-height: 1.6;
         color: #0f172a;
-        white-space: pre-wrap;
         word-break: break-word;
+      }
+
+      .${PANEL_CLASS}__summary-content h1,
+      .${PANEL_CLASS}__summary-content h2,
+      .${PANEL_CLASS}__summary-content h3,
+      .${PANEL_CLASS}__summary-content h4,
+      .${PANEL_CLASS}__summary-content h5,
+      .${PANEL_CLASS}__summary-content h6 {
+        margin: 0.8em 0 0.4em 0;
+        font-weight: 600;
+        line-height: 1.4;
+      }
+
+      .${PANEL_CLASS}__summary-content h1 { font-size: 1.4em; }
+      .${PANEL_CLASS}__summary-content h2 { font-size: 1.3em; }
+      .${PANEL_CLASS}__summary-content h3 { font-size: 1.2em; }
+      .${PANEL_CLASS}__summary-content h4 { font-size: 1.1em; }
+      .${PANEL_CLASS}__summary-content h5,
+      .${PANEL_CLASS}__summary-content h6 { font-size: 1em; }
+
+      .${PANEL_CLASS}__summary-content p {
+        margin: 0.6em 0;
+      }
+
+      .${PANEL_CLASS}__summary-content ul,
+      .${PANEL_CLASS}__summary-content ol {
+        margin: 0.6em 0;
+        padding-left: 1.5em;
+      }
+
+      .${PANEL_CLASS}__summary-content li {
+        margin: 0.3em 0;
+      }
+
+      .${PANEL_CLASS}__summary-content code {
+        background: rgba(15, 23, 42, 0.08);
+        padding: 2px 6px;
+        border-radius: 4px;
         font-family: 'SFMono-Regular', Menlo, Consolas, 'Liberation Mono', monospace;
+        font-size: 0.9em;
+      }
+
+      .${PANEL_CLASS}__summary-content pre {
+        background: rgba(15, 23, 42, 0.08);
+        padding: 10px;
+        border-radius: 6px;
+        overflow-x: auto;
+        margin: 0.8em 0;
+      }
+
+      .${PANEL_CLASS}__summary-content pre code {
+        background: transparent;
+        padding: 0;
+      }
+
+      .${PANEL_CLASS}__summary-content blockquote {
+        border-left: 3px solid rgba(var(--glance-theme-rgb), 0.3);
+        padding-left: 12px;
+        margin: 0.8em 0;
+        color: #475569;
+      }
+
+      .${PANEL_CLASS}__summary-content a {
+        color: var(--glance-theme);
+        text-decoration: none;
+      }
+
+      .${PANEL_CLASS}__summary-content a:hover {
+        text-decoration: underline;
+      }
+
+      .${PANEL_CLASS}__summary-content strong {
+        font-weight: 600;
+      }
+
+      .${PANEL_CLASS}__summary-content em {
+        font-style: italic;
+      }
+
+      .${PANEL_CLASS}__summary-content hr {
+        border: none;
+        border-top: 1px solid rgba(15, 23, 42, 0.1);
+        margin: 1em 0;
+      }
+
+      .${PANEL_CLASS}__summary-content table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 0.8em 0;
+      }
+
+      .${PANEL_CLASS}__summary-content th,
+      .${PANEL_CLASS}__summary-content td {
+        border: 1px solid rgba(15, 23, 42, 0.1);
+        padding: 6px 10px;
+        text-align: left;
+      }
+
+      .${PANEL_CLASS}__summary-content th {
+        background: rgba(15, 23, 42, 0.05);
+        font-weight: 600;
       }
 
       .${PANEL_CLASS}__summary-content:empty::before {
