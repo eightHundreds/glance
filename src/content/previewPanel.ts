@@ -216,8 +216,9 @@ export class PreviewPanel {
     this.host.dataset.visible = 'true';
     this.host.dataset.overlay = 'false';
     if (this.container) {
+      // 使用 visibility + opacity 方案，通过 CSS transition 控制动画
+      // CSS 中已定义：显示时 visibility 立即生效，opacity 过渡
       this.container.dataset.visible = 'true';
-      this.container.style.opacity = '1';
     }
 
     return this.requestCounter;
@@ -288,8 +289,9 @@ export class PreviewPanel {
     this.host.dataset.overlay = 'false';
     this.host.dataset.resizing = 'false';
     if (this.container) {
+      // 使用 visibility + opacity 方案，通过 CSS transition 控制动画
+      // CSS 中已定义：隐藏时 opacity 先过渡，然后 visibility 延迟生效
       this.container.dataset.visible = 'false';
-      this.container.style.opacity = '0';
     }
     this.elements.blocker.style.display = 'none';
     this.elements.panel.dataset.state = 'idle';
@@ -327,6 +329,9 @@ export class PreviewPanel {
     return this.activeRequestId === requestId;
   }
 
+  /**
+   * 设置 Shadow DOM
+   */
   private setupShadowDOM() {
     const style = document.createElement('style');
     style.textContent = this.getStyles();
@@ -338,9 +343,7 @@ export class PreviewPanel {
       position: 'fixed',
       inset: '0',
       zIndex: '2147483647',
-      pointerEvents: 'none',
-      opacity: '0',
-      transition: 'opacity 160ms ease'
+      pointerEvents: 'none'
     });
     this.container = container;
 
@@ -453,27 +456,11 @@ export class PreviewPanel {
     const desc = document.createElement('p');
     desc.className = `${PANEL_CLASS}__summary-setup-desc`;
     desc.textContent = note ?? '在 Options 页面配置 OpenAI 兼容 API 后即可生成总结。';
-    const action = document.createElement('button');
-    action.type = 'button';
-    action.className = `${PANEL_CLASS}__summary-setup-button`;
-    action.textContent = '前往模型设置';
-    action.addEventListener('click', () => this.openOptionsPage());
-    wrapper.append(title, desc, action);
+  
+    wrapper.append(title, desc);
     this.elements.summaryContent.appendChild(wrapper);
   }
 
-  private openOptionsPage() {
-    if (typeof chrome !== 'undefined' && chrome.runtime?.openOptionsPage) {
-      chrome.runtime.openOptionsPage();
-      return;
-    }
-    if (typeof chrome !== 'undefined' && chrome.runtime?.getURL) {
-      const url = chrome.runtime.getURL('options/page.html');
-      window.open(url, '_blank', 'noopener,noreferrer');
-      return;
-    }
-    window.open('/options/page.html', '_blank', 'noopener,noreferrer');
-  }
 
   private renderSummaryContent(markdown: string) {
     if (!this.elements) {
@@ -683,6 +670,15 @@ export class PreviewPanel {
       .${PANEL_CLASS}__container {
         --glance-theme: ${DEFAULT_THEME_COLOR};
         --glance-theme-rgb: ${DEFAULT_THEME_RGB};
+        visibility: hidden;
+        opacity: 0;
+        transition: opacity 160ms ease, visibility 0s linear 160ms;
+      }
+
+      .${PANEL_CLASS}__container[data-visible="true"] {
+        visibility: visible;
+        opacity: 1;
+        transition: opacity 160ms ease, visibility 0s linear 0s;
       }
 
       .${PANEL_CLASS}__overlay {
