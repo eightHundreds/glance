@@ -1,0 +1,2 @@
+export const TRIGGER_DISTANCE_PX = 60;
+export const DEFAULT_LOAD_TIMEOUT_MS = 4000;

@@ -1,0 +1,36 @@
+{
+  "name": "glance",
+  "version": "0.0.65",
+  "description": "Glance 浏览器扩展的现代化工程化项目",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "node scripts/rsbuild-runner.mjs dev",
+    "build": "node scripts/rsbuild-runner.mjs build"
+  },
+  "keywords": [
+    "browser-extension",
+    "rsbuild",
+    "glance"
+  ],
+  "author": "",
+  "license": "MPL-2.0",
+  "devDependencies": {
+    "@rsbuild/core": "^1.6.3",
+    "@rspack/core": "^1.6.3",
+    "@rspack/lite-tapable": "^1.0.0",
+    "@swc/helpers": "^0.5.10",
+    "@types/chrome": "^0.0.273",
+    "@types/react": "18",
+    "@types/react-dom": "18",
+    "typescript": "^5.6.3"
+  },
+  "dependencies": {
+    "@types/turndown": "^5.0.6",
+    "defuddle": "^0.6.6",
+    "react": "18",
+    "react-dom": "18",
+    "swr": "^2.2.5",
+    "turndown": "^7.2.2"
+  }
+}
