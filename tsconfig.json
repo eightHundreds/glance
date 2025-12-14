@@ -10,7 +10,8 @@
     "allowSyntheticDefaultImports": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
-    "types": ["chrome", "react"],
+    "verbatimModuleSyntax": true,
+    "types": ["chrome", "react", "svelte"],
     "jsx": "react-jsx",
     "baseUrl": "src"
   },

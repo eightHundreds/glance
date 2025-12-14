@@ -1,5 +1,8 @@
 // 纯 ESM 配置，供自定义构建脚本直接导入
+import { pluginSvelte } from '@rsbuild/plugin-svelte';
+
 export default {
+  plugins: [pluginSvelte()],
   source: {
     entry: {
       background: './src/background/index.ts',
