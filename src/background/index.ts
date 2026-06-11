@@ -1,70 +1,50 @@
-import { GENERATE_SUMMARY, SUMMARY_CHUNK, SUMMARY_DONE, SUMMARY_ERROR } from '../shared/messages';
+import {
+  GENERATE_SUMMARY,
+  SUMMARY_CHUNK,
+  SUMMARY_DONE,
+  SUMMARY_ERROR
+} from '../shared/messages';
+import { isPreviewCaptureProbe, isPreviewCaptureResult } from '../shared/previewCapture';
+import { isSummaryRequestBody } from '../shared/summaryRequest';
+import { createCspBypassRuleManager } from './cspBypassRules';
 
-// 存储当前活动的预览 URL 规则 ID
-let activeRuleIds: number[] = [];
-let ruleIdCounter = 1000;
+const cspBypassRules = createCspBypassRuleManager(chrome.declarativeNetRequest);
 
-// 移除 CSP 限制的规则
-async function addCspBypassRule(url: string): Promise<number> {
-  const ruleId = ruleIdCounter++;
-  const urlPattern = new URL(url).origin + '/*';
-
-  const rule: chrome.declarativeNetRequest.Rule = {
-    id: ruleId,
-    priority: 1,
-    action: {
-      type: chrome.declarativeNetRequest.RuleActionType.MODIFY_HEADERS,
-      responseHeaders: [
-        {
-          operation: chrome.declarativeNetRequest.HeaderOperation.REMOVE,
-          header: 'Content-Security-Policy'
-        },
-        {
-          operation: chrome.declarativeNetRequest.HeaderOperation.REMOVE,
-          header: 'Content-Security-Policy-Report-Only'
-        },
-        {
-          operation: chrome.declarativeNetRequest.HeaderOperation.REMOVE,
-          header: 'X-Frame-Options'
-        }
-      ]
-    },
-    condition: {
-      urlFilter: urlPattern,
-      resourceTypes: [
-        chrome.declarativeNetRequest.ResourceType.MAIN_FRAME,
-        chrome.declarativeNetRequest.ResourceType.SUB_FRAME
-      ]
-    }
-  };
-
+async function addCspBypassRule(
+  url: string,
+  options: { tabId?: number; initiatorHostname?: string } = {}
+): Promise<number> {
   try {
-    await chrome.declarativeNetRequest.updateSessionRules({
-      addRules: [rule]
-    });
-    activeRuleIds.push(ruleId);
-    return ruleId;
+    return await cspBypassRules.add(url, options);
   } catch (error) {
     console.error('[Glance] Failed to add CSP bypass rule:', error);
     throw error;
   }
 }
 
-// 清理所有活动规则
 async function clearCspBypassRules() {
-  if (activeRuleIds.length === 0) return;
-
   try {
-    await chrome.declarativeNetRequest.updateSessionRules({
-      removeRuleIds: activeRuleIds
-    });
-    activeRuleIds = [];
+    await cspBypassRules.clear();
   } catch (error) {
     console.error('[Glance] Failed to clear CSP bypass rules:', error);
   }
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (isPreviewCaptureProbe(message) || isPreviewCaptureResult(message)) {
+    const tabId = sender.tab?.id;
+    if (typeof tabId !== 'number') {
+      sendResponse({ ok: false, error: 'INVALID_TAB' });
+      return false;
+    }
+
+    chrome.tabs.sendMessage(tabId, message, { frameId: 0 }).catch(error => {
+      console.debug('[Glance][PREVIEW_CAPTURE] Failed to relay iframe capture message:', error);
+    });
+    sendResponse({ ok: true });
+    return false;
+  }
+
   if (message.type === 'FETCH_DOCUMENT') {
     const { url } = message;
     if (typeof url !== 'string') {
@@ -97,6 +77,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'OPEN_OPTIONS') {
+    chrome.runtime.openOptionsPage();
+    sendResponse({ ok: true });
+    return false;
+  }
+
   if (message.type === 'ADD_CSP_BYPASS') {
     const { url } = message;
     if (typeof url !== 'string') {
@@ -106,7 +92,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     (async () => {
       try {
-        const ruleId = await addCspBypassRule(url);
+        const tabId = sender.tab?.id;
+        let initiatorHostname: string | undefined;
+        if (sender.url) {
+          try {
+            initiatorHostname = new URL(sender.url).hostname;
+          } catch {
+            initiatorHostname = undefined;
+          }
+        }
+        const ruleId = await addCspBypassRule(url, { tabId, initiatorHostname });
         sendResponse({ ok: true, ruleId });
       } catch (error) {
         sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) });
@@ -130,8 +125,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === GENERATE_SUMMARY) {
-    const { markdown, prompt, modelConfig, apiKey } = message;
-    if (typeof markdown !== 'string' || typeof prompt !== 'string' || !modelConfig || typeof apiKey !== 'string') {
+    const { requestBody, modelConfig, apiKey } = message;
+    if (!isSummaryRequestBody(requestBody) || !modelConfig || typeof apiKey !== 'string') {
       sendResponse({ ok: false, error: 'INVALID_PARAMS' });
       return false;
     }
@@ -159,7 +154,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       try {
         const baseUrl = modelConfig.apiBaseUrl || '';
-        const modelName = modelConfig.modelName || 'gpt-4o-mini';
         const endpoint = `${baseUrl}/chat/completions`;
 
         const response = await fetch(endpoint, {
@@ -168,14 +162,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             'Authorization': `Bearer ${apiKey}`,
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({
-            model: modelName,
-            messages: [
-              { role: 'system', content: prompt },
-              { role: 'user', content: markdown }
-            ],
-            stream: true
-          }),
+          body: JSON.stringify(requestBody),
           signal: controller.signal
         });
 

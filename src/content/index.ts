@@ -70,14 +70,31 @@ async function bootstrap() {
       const requestId = panel.show(url, { clientX, clientY });
       activeRequestId = requestId;
 
+      void panel.startPreview(requestId, url);
+
+      console.debug('[Glance][DOM_CAPTURE] HTTP fallback fetch started', {
+        requestId,
+        url
+      });
       loadDocumentHtml(url, currentController.signal)
-        .then(html => panel.renderHtml(requestId, html, url))
+        .then(html => {
+          console.debug('[Glance][DOM_CAPTURE] HTTP fallback fetch finished', {
+            requestId,
+            url,
+            htmlLength: html.length
+          });
+          panel.setSummaryFallbackHtml(requestId, html);
+        })
         .catch(error => {
           if (currentController?.signal.aborted) {
             return;
           }
-          console.warn('[Glance] 预览加载失败', error);
-          panel.showError(requestId, '该页面无法直接预览，点击 ↗ 在新标签中打开');
+          console.warn('[Glance] 总结兜底 HTML 获取失败', {
+            requestId,
+            url,
+            error
+          });
+          panel.onSummaryFallbackFailed(requestId);
         })
         .finally(() => {
           if (currentController?.signal.aborted) {

@@ -6,6 +6,8 @@ export type UserSettings = {
   themeColor: string;
   panelLayout: PanelLayout;
   syncEnabled: boolean;
+  debugMode: boolean;
+  debugRequestDispatchEnabled: boolean;
   modelProvider: ModelProvider;
   modelName: string;
   apiBaseUrl: string;
@@ -91,6 +93,8 @@ export const DEFAULT_SETTINGS: UserSettings = {
   themeColor: '#0ea5e9',
   panelLayout: 'side',
   syncEnabled: true,
+  debugMode: false,
+  debugRequestDispatchEnabled: true,
   modelProvider: 'openai',
   modelName: MODEL_PRESETS.openai.modelName,
   apiBaseUrl: MODEL_PRESETS.openai.baseUrl,
@@ -230,6 +234,14 @@ function sanitizeSyncEnabled(value: boolean | undefined): boolean {
   return value === false ? false : true;
 }
 
+function sanitizeDebugMode(value: boolean | undefined): boolean {
+  return value === true;
+}
+
+function sanitizeDebugRequestDispatchEnabled(value: boolean | undefined): boolean {
+  return value !== false;
+}
+
 function sanitizeModelProvider(provider?: string): ModelProvider {
   if (provider === 'deepseek' || provider === 'custom') {
     return provider;
@@ -298,6 +310,8 @@ function sanitizeSettings(input?: Partial<UserSettings> | null): UserSettings {
     themeColor: sanitizeThemeColor(input.themeColor),
     panelLayout: sanitizeLayout(input.panelLayout),
     syncEnabled: sanitizeSyncEnabled(input.syncEnabled),
+    debugMode: sanitizeDebugMode(input.debugMode),
+    debugRequestDispatchEnabled: sanitizeDebugRequestDispatchEnabled(input.debugRequestDispatchEnabled),
     modelProvider: provider,
     modelName: sanitizeModelName(provider, input.modelName),
     apiBaseUrl: sanitizeApiBaseUrl(provider, input.apiBaseUrl),

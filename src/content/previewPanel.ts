@@ -15,7 +15,9 @@ export class PreviewPanel {
     applySettings: (next: UserSettings) => void;
     updateModelConfig: (next: ModelConfigState) => void;
     show: (url: string, pointer: Coordinates) => number;
-    renderHtml: (requestId: number, html: string, url: string) => Promise<void>;
+    startPreview: (requestId: number, url: string) => Promise<void>;
+    setSummaryFallbackHtml: (requestId: number, html: string) => void;
+    onSummaryFallbackFailed: (requestId: number) => void;
     showError: (requestId: number, message: string) => void;
     close: () => Promise<void>;
     openInNewTab: () => void;
@@ -73,9 +75,21 @@ export class PreviewPanel {
     return 0;
   }
 
-  async renderHtml(requestId: number, html: string, url: string) {
+  async startPreview(requestId: number, url: string) {
     if (this.component) {
-      return this.component.renderHtml(requestId, html, url);
+      return this.component.startPreview(requestId, url);
+    }
+  }
+
+  setSummaryFallbackHtml(requestId: number, html: string) {
+    if (this.component) {
+      this.component.setSummaryFallbackHtml(requestId, html);
+    }
+  }
+
+  onSummaryFallbackFailed(requestId: number) {
+    if (this.component) {
+      this.component.onSummaryFallbackFailed(requestId);
     }
   }
 

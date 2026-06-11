@@ -44,6 +44,11 @@ const NAV_SECTIONS = [
     id: 'model',
     title: '大模型设置',
     description: '提前配置 OpenAI 兼容 API 与凭据'
+  },
+  {
+    id: 'debug',
+    title: '调试设置',
+    description: '查看页面总结发送给模型的请求入参'
   }
 ];
 
@@ -208,6 +213,7 @@ function OptionsApp() {
   const layout = settings?.panelLayout ?? DEFAULT_SETTINGS.panelLayout;
   const colorValue = settings?.themeColor ?? DEFAULT_SETTINGS.themeColor;
   const syncEnabled = settings?.syncEnabled ?? DEFAULT_SETTINGS.syncEnabled;
+  const debugMode = settings?.debugMode ?? DEFAULT_SETTINGS.debugMode;
   const disabled = !settings || isLoading;
   const registerSectionRef = useCallback(
     (sectionId: string) => (node: HTMLElement | null) => {
@@ -229,6 +235,15 @@ function OptionsApp() {
       const nextValue = event.target.checked;
       setSettings(prev => (prev ? { ...prev, syncEnabled: nextValue } : prev));
       void persistSettings({ syncEnabled: nextValue });
+    },
+    [persistSettings]
+  );
+
+  const handleDebugToggle = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const nextValue = event.target.checked;
+      setSettings(prev => (prev ? { ...prev, debugMode: nextValue } : prev));
+      void persistSettings({ debugMode: nextValue });
     },
     [persistSettings]
   );
@@ -725,6 +740,27 @@ function OptionsApp() {
                   {promptStatus.text}
                 </p>
               )}
+            </div>
+          </article>
+
+          <article className="settings-card" id="debug" ref={registerSectionRef('debug')}>
+            <h2>调试设置</h2>
+            <p>用于检查页面总结实际发送给模型 API 的请求内容。</p>
+            <div className="field toggle-field">
+              <label htmlFor="debugModeToggle">调试模式</label>
+              <p className="field-description">
+                开启后，页面总结下方会展示最终请求体。API Key 和 Authorization 等凭据不会显示。
+              </p>
+              <label className="switch">
+                <input
+                  id="debugModeToggle"
+                  type="checkbox"
+                  checked={debugMode}
+                  disabled={disabled}
+                  onChange={handleDebugToggle}
+                />
+                <span>{debugMode ? '已开启' : '未开启'}</span>
+              </label>
             </div>
           </article>
 
