@@ -2,11 +2,18 @@
 import { pluginSvelte } from '@rsbuild/plugin-svelte';
 
 export default {
-  plugins: [pluginSvelte()],
+  plugins: [
+    pluginSvelte({
+      svelteLoaderOptions: {
+        emitCss: false
+      }
+    })
+  ],
   source: {
     entry: {
       background: './src/background/index.ts',
       content: './src/content/index.ts',
+      previewFrameCapture: './src/content/previewFrameCapture.ts',
       options: './src/options/index.tsx'
     }
   },
